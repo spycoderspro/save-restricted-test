@@ -88,8 +88,6 @@ def restore_config_sessions(settings):
                 raise
             except Exception:
                 raise SessionConfigError('Could not restore the configured private session') from None
-    if os.getenv('DYNO') and not Session.load(settings.user_session).path.exists():
-        raise SessionConfigError('Set TG_USER_SESSION_B64 before starting a fresh Heroku dyno')
 
 
 def export_session(source, output):

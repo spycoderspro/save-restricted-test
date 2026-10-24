@@ -34,9 +34,10 @@ rerunning the tests. No modifications to `telegram-lib` are needed for this bot.
 
 [Deploy this branch to Heroku](https://heroku.com/deploy?template=https://github.com/spycoderspro/save-restricted-test/tree/feat/save-restricted-bot)
 
-See [HEROKU.md](HEROKU.md) for private session export, required Config Vars, and
-worker startup. Heroku uses Python 3.12 and one worker dyno; no web server is
-needed. Sessions are restored from private Config Vars after dyno replacement.
+See [HEROKU.md](HEROKU.md) for Config Vars and worker startup. Heroku uses Python
+3.12 and one worker dyno; no web server is needed. No manual session is required:
+start the bot and use `/login` in your private conversation. Optional session
+restoration is still supported for dyno replacement.
 
 ## Configure and run
 
@@ -51,9 +52,12 @@ set -a
 set +a
 .venv/bin/python bot.py --check
 .venv/bin/python bot.py --preflight
-.venv/bin/python bot.py --login
 .venv/bin/python bot.py
 ```
+
+After startup, open your own bot from a configured owner account and send `/login`.
+Follow its phone, code, and optional 2FA prompts, then use `/save`. `/loginstatus`
+shows whether the shared source account is ready; `/cancel` stops pending login.
 
 Required configuration:
 
@@ -63,7 +67,9 @@ Required configuration:
 | `TG_BOT_TOKEN` | Token for your own bot, obtained from BotFather |
 | `OWNER_IDS` | Comma-separated positive user IDs allowed to use the bot |
 | `SOURCE_CHAT_IDS` | Comma-separated signed numeric IDs of authorized source chats |
-| `SESSION_DIR` | Private directory for separate user and bot sessions; example provided |
+| `SESSION_DIR` | Private directory for automatically saved user and bot sessions; example provided |
+| `LOGIN_OWNER_ID` | Owner allowed to authorize the shared source account; defaults to the smallest owner ID |
+| `LOGIN_TIMEOUT_SECONDS` | Total login timeout, 30–900 seconds; default 300 |
 | `TRANSFER_WORKERS` | 1, 2 or 4 chunk workers; default 1 |
 | `MAX_CONCURRENT_TRANSFERS` | 1–4 whole-file jobs; default 1, one job per owner |
 | `MAX_FILE_BYTES` | Maximum source file size; default 1,999,999,999 bytes (strictly less than 2 GB) |
@@ -83,17 +89,27 @@ need a public username or additional resolution support.
 `--check` validates configuration without contacting Telegram. `--preflight`
 checks direct TCP only and does not establish protocol/account compatibility.
 `--login` is an explicit terminal login for your user account, with hidden
-phone/code/2FA input. Normal service startup requires an already-authorized user
-session. The bot authenticates using EasyProto's raw `auth.importBotAuthorization`;
+phone/code/2FA input. The bot can start without an authorized user
+session and accept `/login`; an existing valid native session is reused automatically.
+On Heroku, use `/login` again after a dyno replacement unless optional session
+restoration is configured. No manual session variable is required. The bot authenticates using EasyProto's raw `auth.importBotAuthorization`;
 the small adapter uses the pinned library's private `_open`/`_authorized` hooks
 because that version has no public bot-token login convenience method.
+
+Login messages are deleted on a best-effort basis and never echoed or logged.
+A bot conversation is not a Secret Chat; use only your own trusted deployment.
+Phone/code/password input belongs in that app, never this coding chat. Telegram
+may invalidate codes shared in chats; the app does not circumvent that protection.
+The direct terminal `bot.py --login` option remains available on a trusted host.
 
 ## Commands and behavior
 
 - `/start` or `/help`: usage, in an owner's private bot conversation.
+- `/login`: short-lived phone/code/2FA flow for `LOGIN_OWNER_ID` only.
+- `/loginstatus`: whether the shared source account is ready.
 - `/save https://t.me/channel/123` or `https://t.me/c/7/123`: save one permitted
   document or photo from an allowed source. Topic/album/invite links are unsupported.
-- `/cancel`: cancel your active job and drain the library's transfer workers.
+- `/cancel`: stop pending login or cancel your active job and drain workers.
 
 Transfers run in bounded background tasks so the command listener remains free
 for cancellation. Photos are sent as documents to preserve the downloaded bytes.
@@ -123,11 +139,11 @@ uv pip install --python .venv/bin/python -r requirements-dev.txt
 .venv/bin/python -m pytest -q
 ```
 
-**50 offline tests pass**, exercising the installed external EasyProto Client,
+**71 offline tests pass**, exercising the installed external EasyProto Client,
 mocked RPCs, 1/2/4 chunk workers, SHA-256, source/protection checks, cancellation,
 FloodWait, owner-only commands, bot-login request construction and session isolation.
-Additional hosting tests cover native session export/restore, private permissions,
-restart state, and SIGTERM cleanup. These are local simulations, not successful
+Additional login/hosting tests cover phone/code methods, 2FA callbacks, owner-only
+inputs, cancellation, expiry, native session export/restore, and SIGTERM cleanup. These are local simulations, not successful
 live Telegram operations or a Heroku deployment.
 
 This cloud machine refuses direct Telegram MTProto TCP, and live credentials are

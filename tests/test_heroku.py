@@ -111,14 +111,14 @@ def test_session_paths_in_checkout_rejected(encoded, monkeypatch, tmp_path):
         restore_session(encoded, tmp_path / 'user')
 
 
-def test_heroku_requires_seed_on_new_dyno(monkeypatch, tmp_path):
+def test_fresh_heroku_dyno_can_start_without_a_manual_session(monkeypatch, tmp_path):
     from types import SimpleNamespace
     for name in ['TG_USER_SESSION_B64', 'TG_BOT_SESSION_B64']:
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv('DYNO', 'worker.1')
     settings = SimpleNamespace(user_session=tmp_path / 'user', bot_session=tmp_path / 'bot')
-    with pytest.raises(SessionConfigError, match='TG_USER_SESSION_B64'):
-        restore_config_sessions(settings)
+    restore_config_sessions(settings)
+    assert not Session.load(settings.user_session).path.exists()
 
 
 def test_config_vars_restore_separate_sessions(encoded, monkeypatch, tmp_path):
@@ -167,6 +167,6 @@ def test_heroku_manifest_worker_and_required_configuration():
     assert (root / 'Procfile').read_text().strip() == 'worker: python -u bot.py'
     assert (root / '.python-version').read_text().strip() == '3.12'
     assert manifest['formation'] == {'worker': {'quantity': 1, 'size': 'basic'}}
-    assert manifest['env']['TG_USER_SESSION_B64']['required'] is True
+    assert manifest['env']['TG_USER_SESSION_B64']['required'] is False
     assert manifest['env']['MAX_FILE_BYTES']['value'] == str(bot.MAX_ALLOWED_FILE_BYTES)
     assert manifest['env']['SESSION_DIR']['value'].startswith('/tmp/')

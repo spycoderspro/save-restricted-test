@@ -12,9 +12,11 @@
     "TG_BOT_TOKEN": {"description": "Token for your own bot from BotFather. Keep private.", "required": true},
     "OWNER_IDS": {"description": "Comma-separated numeric user IDs allowed to use the bot.", "required": true},
     "SOURCE_CHAT_IDS": {"description": "Comma-separated signed IDs of source chats you own or may access.", "required": true},
-    "TG_USER_SESSION_B64": {"description": "Private native EasyProto session exported by session_config.py after user login. This grants account access; never share it.", "required": true},
+    "TG_USER_SESSION_B64": {"description": "Optional private native EasyProto session for restart restoration. Leave empty to log in through the bot's /login command.", "required": false},
     "TG_BOT_SESSION_B64": {"description": "Optional private EasyProto bot session export. If absent, the bot token authorizes a new session after a dyno replacement.", "required": false},
     "SESSION_DIR": {"value": "/tmp/save-restricted-test-sessions", "description": "Private runtime session files, restored from Config Vars at startup."},
+    "LOGIN_OWNER_ID": {"description": "Optional owner user ID allowed to authorize the shared source account. Defaults to the smallest OWNER_IDS entry.", "required": false},
+    "LOGIN_TIMEOUT_SECONDS": {"value": "300", "description": "Total login time limit, 30 to 900 seconds."},
     "TRANSFER_WORKERS": {"value": "1", "description": "Chunk workers: 1, 2 or 4. Start with 1 for testing."},
     "MAX_CONCURRENT_TRANSFERS": {"value": "1", "description": "Keep one simultaneous transfer during initial testing."},
     "MAX_FILE_BYTES": {"value": "1999999999", "description": "Files must remain strictly below 2 GB (decimal)."}

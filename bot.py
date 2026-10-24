@@ -17,15 +17,17 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from easyproto import Client, FloodWaitError, Message, RPCError, TLObject, types
+from easyproto import AuthorizationRequired, Client, FloodWaitError, Message, RPCError, TLObject, types
 from easyproto.client import peer_id
 from easyproto.session import Session
 from easyproto.transport import IntermediateTransport
 from session_config import SessionConfigError, restore_config_sessions
+from login_flow import LoginFlowError, OwnerLogin
 
 ROOT = Path(__file__).resolve().parent
 MAX_ALLOWED_FILE_BYTES = 1_999_999_999  # Strictly less than 2 GB (decimal).
-HELP = ('Send /save https://t.me/chat/message_id, or a private t.me/c link. '
+HELP = ('Use /login to sign in your source account, and /loginstatus to check it. '
+        'Send /save https://t.me/chat/message_id, or a private t.me/c link. '
         'Only configured source chats are accepted. /cancel stops your current transfer. '
         'Protected and disappearing content is refused.')
 
@@ -60,6 +62,8 @@ class Settings:
     workers: int = 1
     max_bytes: int = MAX_ALLOWED_FILE_BYTES
     max_jobs: int = 1
+    login_owner: int | None = None
+    login_timeout: int = 300
 
     @classmethod
     def from_env(cls, *, login=False):
@@ -77,12 +81,16 @@ class Settings:
             workers = int(os.getenv('TRANSFER_WORKERS', '1'))
             maximum = int(os.getenv('MAX_FILE_BYTES', str(MAX_ALLOWED_FILE_BYTES)))
             jobs = int(os.getenv('MAX_CONCURRENT_TRANSFERS', '1'))
+            login_owner = int(os.getenv('LOGIN_OWNER_ID') or min(owners))
+            login_timeout = int(os.getenv('LOGIN_TIMEOUT_SECONDS') or '300')
         except ValueError:
             raise RequestError('IDs and transfer limits must be integers') from None
         if api_id <= 0 or not owners or any(x <= 0 for x in owners) or not sources or 0 in sources:
             raise RequestError('Configure positive owner/API IDs and nonzero signed source chat IDs')
         if workers not in (1, 2, 4) or not 1 <= jobs <= 4 or not 1 <= maximum <= MAX_ALLOWED_FILE_BYTES:
             raise RequestError('Workers must be 1/2/4, jobs 1..4, and size limit 1..1999999999 (less than 2 GB)')
+        if login_owner not in owners or not 30 <= login_timeout <= 900:
+            raise RequestError('LOGIN_OWNER_ID must be an owner; LOGIN_TIMEOUT_SECONDS must be 30..900')
         folder = Path(os.getenv('SESSION_DIR', '~/.local/share/save-restricted-test')).expanduser()
         user = Path(os.getenv('TG_SESSION', str(folder / 'user'))).expanduser().resolve()
         bot = Path(os.getenv('TG_BOT_SESSION', str(folder / 'bot'))).expanduser().resolve()
@@ -93,7 +101,7 @@ class Settings:
         if user.is_relative_to(ROOT) or bot.is_relative_to(ROOT):
             raise RequestError('Keep sessions outside the checkout')
         return cls(api_id, os.environ['TG_API_HASH'], os.getenv('TG_BOT_TOKEN', ''),
-                   owners, sources, user, bot, workers, maximum, jobs)
+                   owners, sources, user, bot, workers, maximum, jobs, login_owner, login_timeout)
 
     def prepare_sessions(self):
         for path in (self.user_session, self.bot_session):
@@ -253,10 +261,23 @@ async def relay(user, bot, target, identifier, destination, settings):
 
 
 class SaveBot:
-    def __init__(self, settings, user, bot):
+    def __init__(self, settings, user, bot, *, user_ready=True):
         self.settings, self.user, self.bot = settings, user, bot
+        self.user_ready = user_ready
         self.jobs = {}
         self.cooldown_until = 0.0
+        self.login = OwnerLogin(self, lambda: Client(settings.api_id, settings.api_hash,
+            session=settings.user_session, transfer_workers=settings.workers, flood_sleep_threshold=0))
+
+    def login_log(self, status, **fields):
+        log_event('login', status=status, **fields)
+
+    async def activate_user(self, client):
+        if (await client.me()).get('bot'):
+            raise LoginFlowError('The source account must be a user account, not a bot.')
+        async for _ in client.chats(limit=1000):
+            pass
+        self.user, self.user_ready = client, True
 
     def flooded(self, error):
         self.cooldown_until = max(self.cooldown_until, time.monotonic() + error.seconds)
@@ -264,13 +285,15 @@ class SaveBot:
 
     async def tell(self, destination, text):
         if time.monotonic() < self.cooldown_until:
-            return
+            return False
         try:
             await self.bot.send(destination, text)
+            return True
         except FloodWaitError as exc:
             self.flooded(exc)
         except Exception as exc:
             log_event('notification', status='failed', error_type=type(exc).__name__)
+        return False
 
     async def work(self, owner, target, identifier, destination):
         try:
@@ -305,17 +328,35 @@ class SaveBot:
             return
         command = parts[0].split('@', 1)[0].lower()
         if command == '/cancel':
+            login_active = self.login.active_for(owner)
+            if login_active:
+                await self.login.close()
             job = self.jobs.get(owner)
             if job:
                 job.cancel()
                 await asyncio.gather(job, return_exceptions=True)
                 self.jobs.pop(owner, None)
-            await self.tell(destination, 'Cancelled.' if job else 'No transfer is running.')
+            if login_active and self.user_ready and not job:
+                await self.tell(destination, 'Login already completed; the source account remains logged in.')
+            else:
+                await self.tell(destination, 'Cancelled.' if job or login_active else 'No transfer or login is running.')
+            return
+        if self.login.active_for(owner) and command not in ('/start', '/help', '/login', '/loginstatus'):
+            await self.login.submit(event, destination)
             return
         if time.monotonic() < self.cooldown_until:
             return
         if command in ('/start', '/help'):
             await self.tell(destination, HELP)
+            return
+        if command == '/login':
+            await self.login.begin(owner, destination)
+            return
+        if command == '/loginstatus':
+            await self.tell(destination, 'Source account is logged in.' if self.user_ready else 'Source account needs /login.')
+            return
+        if not self.user_ready:
+            await self.tell(destination, 'The source account is not logged in. Ask the login owner to use /login.')
             return
         value = parts[1] if command == '/save' and len(parts) == 2 else parts[0] if len(parts) == 1 else ''
         try:
@@ -333,6 +374,7 @@ class SaveBot:
         self.jobs[owner] = asyncio.create_task(self.work(owner, target, identifier, destination))
 
     async def close(self):
+        await self.login.close()
         tasks = list(self.jobs.values())
         for task in tasks:
             task.cancel()
@@ -348,21 +390,22 @@ async def run(settings):
                   transfer_workers=settings.workers, flood_sleep_threshold=0)
     bot = BotClient(settings.api_id, settings.api_hash, session=settings.bot_session,
                     transfer_workers=settings.workers, flood_sleep_threshold=0)
-    service = SaveBot(settings, user, bot)
+    service = SaveBot(settings, user, bot, user_ready=False)
     try:
-        await user.connect()  # Never prompt during service startup.
-        if (await user.me()).get('bot'):
-            raise RequestError('TG_SESSION must belong to your user account')
-        # Private link access hashes are in-memory in EasyProto and rebuilt at startup.
-        async for _ in user.chats(limit=1000):
-            pass
         await bot.connect_token(settings.bot_token)
+        if user.session.auth_key and user.session.user_id:
+            try:
+                await user.connect()  # Reuse an existing valid session without prompting.
+            except AuthorizationRequired:
+                pass  # The owner can authorize a fresh session through /login.
+            else:
+                await service.activate_user(user)
         bot.on_message(incoming=True)(service.handle)
-        log_event('startup', status='listening')
+        log_event('startup', status='listening', user_login_required=not service.user_ready)
         await bot.listen()  # Gaps/disconnections fail explicitly; no blind request replay.
     finally:
         await service.close()
-        await asyncio.gather(bot.close(), user.close())
+        await asyncio.gather(bot.close(), service.user.close())
 
 
 async def worker(settings):
@@ -425,6 +468,7 @@ def main():
     args = parser.parse_args()
     # Avoid upstream callback tracebacks containing account message data.
     logging.getLogger('easyproto').disabled = True
+    logging.getLogger('easyproto.client').disabled = True
     try:
         if args.preflight:
             asyncio.run(preflight())
@@ -437,7 +481,7 @@ def main():
         return 0
     except KeyboardInterrupt:
         return 130
-    except (RequestError, SessionConfigError) as exc:
+    except (RequestError, SessionConfigError, LoginFlowError) as exc:
         log_event('startup', status='failed', reason=str(exc))
     except Exception as exc:
         log_event('startup', status='failed', error_type=type(exc).__name__)
