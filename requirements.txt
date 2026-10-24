@@ -1,0 +1,2 @@
+# Your independent Telegram client; pinned for reproducible installs.
+easyproto-actions[fast] @ git+https://github.com/spycoderspro/telegram-lib.git@80dcb34b0d39e11f1139bb297b6c8fc8986993d9
