@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import re
+import signal
 import sys
 import tempfile
 import time
@@ -20,6 +21,7 @@ from easyproto import Client, FloodWaitError, Message, RPCError, TLObject, types
 from easyproto.client import peer_id
 from easyproto.session import Session
 from easyproto.transport import IntermediateTransport
+from session_config import SessionConfigError, restore_config_sessions
 
 ROOT = Path(__file__).resolve().parent
 MAX_ALLOWED_FILE_BYTES = 1_999_999_999  # Strictly less than 2 GB (decimal).
@@ -340,6 +342,7 @@ class SaveBot:
 
 async def run(settings):
     settings.prepare_sessions()
+    restore_config_sessions(settings)
     # Construct clients immediately before opening, avoiding stale pre-login snapshots.
     user = Client(settings.api_id, settings.api_hash, session=settings.user_session,
                   transfer_workers=settings.workers, flood_sleep_threshold=0)
@@ -360,6 +363,37 @@ async def run(settings):
     finally:
         await service.close()
         await asyncio.gather(bot.close(), user.close())
+
+
+async def worker(settings):
+    """Give Heroku's SIGTERM a chance to drain jobs and close both clients."""
+    loop = asyncio.get_running_loop()
+    task = asyncio.create_task(run(settings))
+    stopping = False
+    registered = False
+
+    def stop():
+        nonlocal stopping
+        if not stopping:
+            stopping = True
+            task.cancel()
+
+    try:
+        try:
+            loop.add_signal_handler(signal.SIGTERM, stop)
+            registered = True
+        except (NotImplementedError, RuntimeError):
+            pass  # Non-POSIX development terminals still support Ctrl+C.
+        try:
+            await task
+        except asyncio.CancelledError:
+            if not stopping:
+                raise
+        if stopping:
+            log_event('shutdown', status='completed')
+    finally:
+        if registered:
+            loop.remove_signal_handler(signal.SIGTERM)
 
 
 async def login(settings):
@@ -399,11 +433,11 @@ def main():
         if args.check:
             log_event('configuration', status='passed', telegram='unverified')
             return 0
-        asyncio.run(login(settings) if args.login else run(settings))
+        asyncio.run(login(settings) if args.login else worker(settings))
         return 0
     except KeyboardInterrupt:
         return 130
-    except RequestError as exc:
+    except (RequestError, SessionConfigError) as exc:
         log_event('startup', status='failed', reason=str(exc))
     except Exception as exc:
         log_event('startup', status='failed', error_type=type(exc).__name__)

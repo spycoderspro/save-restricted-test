@@ -27,7 +27,7 @@ UV_CACHE_DIR=/workspace/.cache/uv uv pip install --python .venv/bin/python -r re
 .venv/bin/python bot.py --preflight
 ```
 
-The suite passed **33 tests**. Tests use the actual installed external Client and
+The initial bot suite passed **33 tests**. Tests use the actual installed external Client and
 media pipeline with simulated RPCs. They cover message-link parsing, authorized
 source matching, refreshed protected-chat flags, expiring/protected/wrong-chat
 refusal, 1/2/4 chunk workers, delivered-file SHA-256, corruption detection,
@@ -70,3 +70,22 @@ rewritten or connected to the new bot. No protected-content bypass is implemente
 Runtime startup requires securely configured API credentials, bot token, owner
 and source lists, a separately authorized private user session, and reachable
 Telegram TCP. Offline setup does not establish live or production readiness.
+
+## Heroku testing configuration
+
+`Procfile` starts one worker with `python -u bot.py`; `app.json` declares the
+Python buildpack, Heroku-24, private configuration requirements, and one Basic
+worker. `.python-version` selects supported Python 3.12. No web server, external
+Telegram client, or copied EasyProto implementation was added.
+
+The expanded suite passes **50 offline tests**. Hosting tests exercise private
+native-session export/restore from Config Vars, corruption/size/auth checks,
+preserving newer local state and other accounts, live lock exclusion, fresh-dyno
+requirements, and graceful SIGTERM cleanup. Production requirements and CLI help
+were also checked in a clean Python 3.12 environment with pip.
+
+No Heroku app/build/dyno or live Telegram operation was validated. The Heroku CLI
+is not installed here and no Heroku account credentials were used. Session
+restoration retains authorization across dyno replacement; it does not persist
+transfers, replay missed updates, or fix the external library limitations above.
+See HEROKU.md for user-controlled deployment and testing.

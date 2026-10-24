@@ -30,6 +30,14 @@ For development/testing, install `requirements-dev.txt` instead. Updating your
 library means deliberately updating the commit pin in `requirements.txt` and
 rerunning the tests. No modifications to `telegram-lib` are needed for this bot.
 
+## Heroku testing
+
+[Deploy this branch to Heroku](https://heroku.com/deploy?template=https://github.com/spycoderspro/save-restricted-test/tree/feat/save-restricted-bot)
+
+See [HEROKU.md](HEROKU.md) for private session export, required Config Vars, and
+worker startup. Heroku uses Python 3.12 and one worker dyno; no web server is
+needed. Sessions are restored from private Config Vars after dyno replacement.
+
 ## Configure and run
 
 Copy `.env.example` to a private `.env` (mode 0600), enter values locally, and
@@ -115,10 +123,12 @@ uv pip install --python .venv/bin/python -r requirements-dev.txt
 .venv/bin/python -m pytest -q
 ```
 
-**33 offline tests pass**, exercising the installed external EasyProto Client,
+**50 offline tests pass**, exercising the installed external EasyProto Client,
 mocked RPCs, 1/2/4 chunk workers, SHA-256, source/protection checks, cancellation,
 FloodWait, owner-only commands, bot-login request construction and session isolation.
-These are local simulations, not successful live Telegram operations.
+Additional hosting tests cover native session export/restore, private permissions,
+restart state, and SIGTERM cleanup. These are local simulations, not successful
+live Telegram operations or a Heroku deployment.
 
 This cloud machine refuses direct Telegram MTProto TCP, and live credentials are
 absent. Real login, bot updates, file transfer and full bot behavior remain

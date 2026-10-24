@@ -1,0 +1,22 @@
+{
+  "name": "Save Restricted Test Bot",
+  "description": "Private test bot using the external EasyProto Telegram library.",
+  "repository": "https://github.com/spycoderspro/save-restricted-test",
+  "keywords": ["python", "telegram", "easyproto"],
+  "stack": "heroku-24",
+  "buildpacks": [{"url": "heroku/python"}],
+  "formation": {"worker": {"quantity": 1, "size": "basic"}},
+  "env": {
+    "TG_API_ID": {"description": "Your Telegram API application ID.", "required": true},
+    "TG_API_HASH": {"description": "Your Telegram API hash. Keep private.", "required": true},
+    "TG_BOT_TOKEN": {"description": "Token for your own bot from BotFather. Keep private.", "required": true},
+    "OWNER_IDS": {"description": "Comma-separated numeric user IDs allowed to use the bot.", "required": true},
+    "SOURCE_CHAT_IDS": {"description": "Comma-separated signed IDs of source chats you own or may access.", "required": true},
+    "TG_USER_SESSION_B64": {"description": "Private native EasyProto session exported by session_config.py after user login. This grants account access; never share it.", "required": true},
+    "TG_BOT_SESSION_B64": {"description": "Optional private EasyProto bot session export. If absent, the bot token authorizes a new session after a dyno replacement.", "required": false},
+    "SESSION_DIR": {"value": "/tmp/save-restricted-test-sessions", "description": "Private runtime session files, restored from Config Vars at startup."},
+    "TRANSFER_WORKERS": {"value": "1", "description": "Chunk workers: 1, 2 or 4. Start with 1 for testing."},
+    "MAX_CONCURRENT_TRANSFERS": {"value": "1", "description": "Keep one simultaneous transfer during initial testing."},
+    "MAX_FILE_BYTES": {"value": "1999999999", "description": "Files must remain strictly below 2 GB (decimal)."}
+  }
+}
