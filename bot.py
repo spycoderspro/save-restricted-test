@@ -22,6 +22,7 @@ from easyproto.session import Session
 from easyproto.transport import IntermediateTransport
 
 ROOT = Path(__file__).resolve().parent
+MAX_ALLOWED_FILE_BYTES = 1_999_999_999  # Strictly less than 2 GB (decimal).
 HELP = ('Send /save https://t.me/chat/message_id, or a private t.me/c link. '
         'Only configured source chats are accepted. /cancel stops your current transfer. '
         'Protected and disappearing content is refused.')
@@ -55,7 +56,7 @@ class Settings:
     user_session: Path
     bot_session: Path
     workers: int = 1
-    max_bytes: int = 50 * 1024 * 1024
+    max_bytes: int = MAX_ALLOWED_FILE_BYTES
     max_jobs: int = 1
 
     @classmethod
@@ -72,14 +73,14 @@ class Settings:
             owners, sources = identifiers('OWNER_IDS'), identifiers('SOURCE_CHAT_IDS')
             api_id = int(os.environ['TG_API_ID'])
             workers = int(os.getenv('TRANSFER_WORKERS', '1'))
-            maximum = int(os.getenv('MAX_FILE_BYTES', str(50 * 1024 * 1024)))
+            maximum = int(os.getenv('MAX_FILE_BYTES', str(MAX_ALLOWED_FILE_BYTES)))
             jobs = int(os.getenv('MAX_CONCURRENT_TRANSFERS', '1'))
         except ValueError:
             raise RequestError('IDs and transfer limits must be integers') from None
         if api_id <= 0 or not owners or any(x <= 0 for x in owners) or not sources or 0 in sources:
             raise RequestError('Configure positive owner/API IDs and nonzero signed source chat IDs')
-        if workers not in (1, 2, 4) or not 1 <= jobs <= 4 or not 1 <= maximum <= 2_000_000_000:
-            raise RequestError('Workers must be 1/2/4, jobs 1..4, and size limit 1..2000000000')
+        if workers not in (1, 2, 4) or not 1 <= jobs <= 4 or not 1 <= maximum <= MAX_ALLOWED_FILE_BYTES:
+            raise RequestError('Workers must be 1/2/4, jobs 1..4, and size limit 1..1999999999 (less than 2 GB)')
         folder = Path(os.getenv('SESSION_DIR', '~/.local/share/save-restricted-test')).expanduser()
         user = Path(os.getenv('TG_SESSION', str(folder / 'user'))).expanduser().resolve()
         bot = Path(os.getenv('TG_BOT_SESSION', str(folder / 'bot'))).expanduser().resolve()

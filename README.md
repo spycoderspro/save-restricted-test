@@ -58,7 +58,7 @@ Required configuration:
 | `SESSION_DIR` | Private directory for separate user and bot sessions; example provided |
 | `TRANSFER_WORKERS` | 1, 2 or 4 chunk workers; default 1 |
 | `MAX_CONCURRENT_TRANSFERS` | 1–4 whole-file jobs; default 1, one job per owner |
-| `MAX_FILE_BYTES` | Maximum source file size; default 50 MiB |
+| `MAX_FILE_BYTES` | Maximum source file size; default 1,999,999,999 bytes (strictly less than 2 GB) |
 
 `TG_SESSION` and `TG_BOT_SESSION` optionally override individual paths. Sessions
 must be distinct, outside the checkout, with parent-directory mode 0700. They

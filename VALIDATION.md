@@ -41,6 +41,11 @@ names in this unconfigured instance. `--preflight` fails with
 `ConnectionRefusedError` before MTProto authentication. These are unmet runtime
 prerequisites, not passing live tests. No live test is counted among the 33 tests.
 
+The default file limit is 1,999,999,999 bytes, strictly less than 2 GB (decimal).
+Metadata-only boundary checks accept that size and reject 2,000,000,000 bytes
+and above; environment configuration cannot raise the limit to 2 GB or higher.
+These checks allocate no large files and do not verify a live 2 GB transfer.
+
 ## Still unverified or incomplete
 
 No real user login/2FA, bot-token login, bot update, message save, DC migration,
